@@ -1,0 +1,35 @@
+[package]
+authors = ["Michael Lodder <redmike7@gmail.com>"]
+categories = ["cryptography", "algorithms"]
+description = "Extra Rust-Crypto elliptic-curve adaptors, functions, and macros"
+documentation = "https://docs.rs/elliptic-curve-tools"
+edition = "2021"
+homepage = "https://github.com/mikelodder7/elliptic-curve-tools"
+keywords = ["crypto", "elliptic", "ecc", "serialize", "digest"]
+license = "Apache-2.0 OR MIT"
+name = "elliptic-curve-tools"
+readme = "README.md"
+repository = "https://github.com/mikelodder7/elliptic-curve-tools"
+version = "0.1.0"
+
+[features]
+default = []
+alloc = ["elliptic-curve/alloc", "hex/alloc", "serde/alloc", "multiexp", "zeroize/alloc"]
+std = ["elliptic-curve/std", "hex/std", "serde/std", "multiexp/std", "zeroize/std"]
+
+[dependencies]
+elliptic-curve = { version = "0.13", features = ["bits"] }
+heapless = "0.8"
+hex = { version = "0.4", default-features = false }
+multiexp = { version = "0.4", default-features = false, optional = true }
+serde = { version = "1.0", default-features = false }
+zeroize = { version = "1.8", default-features = false, optional = true }
+
+[dev-dependencies]
+blsful = "2.5"
+curve25519-dalek-ml = "4.2"
+k256 = "0.13"
+p256 = "0.13"
+p384 = "0.13"
+ed448-goldilocks-plus = "0.11"
+serde = { version = "1.0", features = ["derive"] }
