@@ -3,10 +3,10 @@ use crate::*;
 use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
-    slice, str,
 };
 use elliptic_curve::{group::GroupEncoding, subtle::CtOption, Group, PrimeField};
 use serde::{
+    self,
     de::{Error as DError, SeqAccess, Visitor},
     ser::SerializeTuple,
     Deserializer, Serializer,
@@ -233,8 +233,7 @@ where
     B: AsRef<[u8]> + AsMut<[u8]> + Default,
 {
     if s.is_human_readable() {
-        let converter = HexConverter::new(bytes);
-        s.serialize_str(converter.as_str())
+        s.serialize_str(&hex::encode(bytes.as_ref()))
     } else {
         s.serialize_bytes(bytes.as_ref())
     }
@@ -274,8 +273,7 @@ where
     if s.is_human_readable() {
         let mut seq = s.serialize_tuple(length)?;
         for b in sequence {
-            let converter = HexConverter::new(b);
-            seq.serialize_element(converter.as_str())?;
+            seq.serialize_element(&hex::encode(b.as_ref()))?;
         }
         seq.end()
     } else {
@@ -471,35 +469,6 @@ where
     }
 }
 
-struct HexConverter<B> {
-    first_half: B,
-    last_half: B,
-}
-
-impl<B: AsRef<[u8]> + AsMut<[u8]> + Default> HexConverter<B> {
-    pub fn new(bytes: B) -> Self {
-        let mid = bytes.as_ref().len() / 2;
-        let mut first_half = B::default();
-        let mut last_half = B::default();
-        let _ = hex::encode_to_slice(&bytes.as_ref()[..mid], first_half.as_mut());
-        let _ = hex::encode_to_slice(&bytes.as_ref()[mid..], last_half.as_mut());
-        Self {
-            first_half,
-            last_half,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        let length = self.last_half.as_ref().len();
-        unsafe {
-            str::from_utf8_unchecked(slice::from_raw_parts(
-                self.first_half.as_ref().as_ptr(),
-                length * 2,
-            ))
-        }
-    }
-}
-
 trait Pushable<T>: Default {
     fn push(&mut self, value: T);
     fn entries(&self) -> usize;
@@ -553,5 +522,136 @@ impl DeserializeMethod {
             #[cfg(any(feature = "alloc", feature = "std"))]
             Self::Seq => d.deserialize_seq(v),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elliptic_curve::Field;
+    use rstest::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+    struct TestStruct<G: Group + GroupEncoding> {
+        #[serde(with = "prime_field")]
+        scalar: G::Scalar,
+        #[serde(with = "group")]
+        point: G,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+    struct TestStructArray<G: Group + GroupEncoding, const N: usize> {
+        #[serde(with = "prime_field_array")]
+        scalar: [G::Scalar; N],
+        #[serde(with = "group_array")]
+        point: [G; N],
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+    struct TestStructVec<G: Group + GroupEncoding> {
+        #[serde(with = "prime_field_vec")]
+        scalar: Vec<G::Scalar>,
+        #[serde(with = "group_vec")]
+        point: Vec<G>,
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+    struct TestStructBoxedSlice<G: Group + GroupEncoding> {
+        #[serde(with = "prime_field_boxed_slice")]
+        scalar: Box<[G::Scalar]>,
+        #[serde(with = "group_boxed_slice")]
+        point: Box<[G]>,
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[rstest]
+    #[case::k256(k256::ProjectivePoint::default())]
+    #[case::p256(p256::ProjectivePoint::default())]
+    #[case::p384(p384::ProjectivePoint::default())]
+    #[case::curve25519_edwards(curve25519_dalek_ml::edwards::EdwardsPoint::default())]
+    #[case::curve25519_ristretto(curve25519_dalek_ml::ristretto::RistrettoPoint::default())]
+    #[case::bls12381_g1(blsful::inner_types::G1Projective::default())]
+    #[case::bls12381_g2(blsful::inner_types::G2Projective::default())]
+    #[case::ed448_edwards(ed448_goldilocks_plus::EdwardsPoint::default())]
+    fn single_struct<G: Group + GroupEncoding>(#[case] _g: G) {
+        let test_struct = TestStruct {
+            scalar: <G::Scalar as Field>::ONE,
+            point: G::generator(),
+        };
+
+        // postcard
+        let res = postcard::to_stdvec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = postcard::from_bytes(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // bare
+        let res = serde_bare::to_vec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_bare::from_slice(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // cbor
+        let res = serde_cbor::to_vec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_cbor::from_slice(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // ciborium
+        let mut buffer = Vec::with_capacity(86);
+        let res = ciborium::into_writer(&test_struct, &mut buffer);
+        assert!(res.is_ok());
+        let res = ciborium::from_reader(buffer.as_slice());
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // bincode
+        let res = bincode::serialize(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = bincode::deserialize(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // json
+        let res = serde_json::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_json::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // yaml
+        let res = serde_yaml::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_yaml::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // toml
+        let res = toml::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = toml::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
     }
 }

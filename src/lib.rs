@@ -33,7 +33,7 @@
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
-//! pub struct GroupWrapper<G: Group>( #[serde(with = "group")] G);
+//! pub struct GroupWrapper<G: Group + GroupEncoding>( #[serde(with = "group")] G);
 //! ```
 //!
 //! Other collections can also be serialized like
