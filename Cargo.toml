@@ -10,7 +10,7 @@ license = "Apache-2.0 OR MIT"
 name = "elliptic-curve-tools"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/elliptic-curve-tools"
-version = "0.1.1"
+version = "0.1.2"
 
 [features]
 default = ["std"]
@@ -30,7 +30,7 @@ bincode = "1.3.3"
 blsful = "2.5"
 ciborium = "0.2"
 curve25519-dalek-ml = { version = "4.2", features = ["group", "group-bits"] }
-ed448-goldilocks-plus = "0.11"
+ed448-goldilocks-plus = "0.12"
 k256 = { version = "0.13", features = ["arithmetic"] }
 p256 = { version = "0.13", features = ["arithmetic"] }
 p384 = { version = "0.13", features = ["arithmetic"] }

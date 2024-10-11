@@ -61,6 +61,7 @@ pub mod prime_field_array {
             F::from_repr,
             DeserializeMethod::Tuple,
             d,
+            N,
         )?;
         output
             .into_array::<N>()
@@ -89,7 +90,7 @@ pub mod prime_field_vec {
         D: Deserializer<'de>,
         F: PrimeField,
     {
-        deserialize_pushable::<F::Repr, F, _, Vec<F>, _>(F::from_repr, DeserializeMethod::Seq, d)
+        deserialize_pushable::<F::Repr, F, _, Vec<F>, _>(F::from_repr, DeserializeMethod::Seq, d, 0)
     }
 }
 
@@ -166,6 +167,7 @@ pub mod group_array {
             |repr| G::from_bytes(&repr),
             DeserializeMethod::Tuple,
             d,
+            N,
         )?;
         output
             .into_array::<N>()
@@ -198,6 +200,7 @@ pub mod group_vec {
             |repr| G::from_bytes(&repr),
             DeserializeMethod::Seq,
             d,
+            0,
         )
     }
 }
@@ -254,7 +257,8 @@ where
         }
         seq.end()
     } else {
-        let mut seq = s.serialize_seq(Some(length))?;
+        let byte_length = length * B::default().as_ref().len();
+        let mut seq = s.serialize_seq(Some(byte_length))?;
         for g in sequence {
             for b in g.as_ref() {
                 seq.serialize_element(b)?;
@@ -277,7 +281,8 @@ where
         }
         seq.end()
     } else {
-        let mut seq = s.serialize_tuple(length)?;
+        let byte_length = length * B::default().as_ref().len();
+        let mut seq = s.serialize_tuple(byte_length)?;
         for g in sequence {
             for b in g.as_ref() {
                 seq.serialize_element(b)?;
@@ -352,6 +357,7 @@ fn deserialize_pushable<'de, B, O, FO, P, D>(
     fo: FO,
     method: DeserializeMethod,
     d: D,
+    expected_entries: usize,
 ) -> Result<P, D::Error>
 where
     D: Deserializer<'de>,
@@ -384,16 +390,13 @@ where
                 A: SeqAccess<'de>,
             {
                 let mut arr = P::default();
-                while let Some(element) = seq.next_element::<&str>()? {
+                while let Some(element) = seq.next_element::<String>()? {
                     let mut repr = B::default();
                     hex::decode_to_slice(element, repr.as_mut())
                         .map_err(|_| DError::custom("invalid hex string"))?;
                     let a =
                         Option::from((self.fo)(repr)).ok_or(DError::custom("invalid element"))?;
                     arr.push(a);
-                }
-                if arr.entries() <= P::expected_size() {
-                    return Err(DError::custom("invalid number of elements"));
                 }
                 Ok(arr)
             }
@@ -404,7 +407,7 @@ where
                 fo,
                 marker: PhantomData::<(B, O, P)>,
             },
-            P::expected_size(),
+            expected_entries,
         )
     } else {
         struct ByteSeqVisitor<B, O, FO, P> {
@@ -450,42 +453,30 @@ where
                         Option::from((self.fo)(repr)).ok_or(DError::custom("invalid element"))?;
                     arr.push(a);
                 }
-                if arr.entries() < P::expected_size() {
-                    return Err(DError::custom("invalid number of elements"));
-                }
 
                 Ok(arr)
             }
         }
         let repr = B::default();
         let chunk = repr.as_ref().len();
-        d.deserialize_tuple(
-            P::expected_size() * chunk,
+        method.run_fn(
+            d,
             ByteSeqVisitor::<B, O, FO, P> {
                 fo,
                 marker: PhantomData::<(B, O, P)>,
             },
+            expected_entries * chunk,
         )
     }
 }
 
 trait Pushable<T>: Default {
     fn push(&mut self, value: T);
-    fn entries(&self) -> usize;
-    fn expected_size() -> usize;
 }
 
 impl<T: Debug, const N: usize> Pushable<T> for heapless::Vec<T, N> {
     fn push(&mut self, value: T) {
         heapless::Vec::push(self, value).expect("should've allocated more");
-    }
-
-    fn entries(&self) -> usize {
-        (*self).len()
-    }
-
-    fn expected_size() -> usize {
-        N
     }
 }
 
@@ -493,14 +484,6 @@ impl<T: Debug, const N: usize> Pushable<T> for heapless::Vec<T, N> {
 impl<T> Pushable<T> for Vec<T> {
     fn push(&mut self, value: T) {
         Vec::push(self, value)
-    }
-
-    fn entries(&self) -> usize {
-        self.len()
-    }
-
-    fn expected_size() -> usize {
-        0
     }
 }
 
@@ -580,6 +563,87 @@ mod tests {
         let test_struct = TestStruct {
             scalar: <G::Scalar as Field>::ONE,
             point: G::generator(),
+        };
+
+        // postcard
+        let res = postcard::to_stdvec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = postcard::from_bytes(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // bare
+        let res = serde_bare::to_vec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_bare::from_slice(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // cbor
+        let res = serde_cbor::to_vec(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_cbor::from_slice(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // ciborium
+        let mut buffer = Vec::with_capacity(86);
+        let res = ciborium::into_writer(&test_struct, &mut buffer);
+        assert!(res.is_ok());
+        let res = ciborium::from_reader(buffer.as_slice());
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // bincode
+        let res = bincode::serialize(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = bincode::deserialize(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // json
+        let res = serde_json::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_json::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // yaml
+        let res = serde_yaml::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = serde_yaml::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+
+        // toml
+        let res = toml::to_string(&test_struct);
+        assert!(res.is_ok());
+        let output = res.unwrap();
+        let res = toml::from_str(&output);
+        assert!(res.is_ok());
+        let test_struct2 = res.unwrap();
+        assert_eq!(test_struct, test_struct2);
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[test]
+    fn struct_vec() {
+        let test_struct = TestStructVec {
+            scalar: vec![<k256::Scalar as Field>::ONE; 32],
+            point: vec![k256::ProjectivePoint::GENERATOR; 32],
         };
 
         // postcard

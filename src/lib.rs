@@ -68,9 +68,9 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 #[cfg(feature = "std")]
-use std::{boxed::Box, vec::Vec};
+use std::{boxed::Box, string::String, vec::Vec};
 
 pub use serdes::*;
 pub use sum_of_products::*;
