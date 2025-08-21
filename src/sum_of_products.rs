@@ -14,6 +14,7 @@ impl<G> SumOfProducts for G
 where
     G: Group,
     G::Scalar: PrimeFieldBits + zeroize::Zeroize,
+    G: zeroize::DefaultIsZeroes,
 {
     fn sum_of_products(pairs: &[(Self::Scalar, Self)]) -> Self {
         multiexp::multiexp::<Self>(pairs)
