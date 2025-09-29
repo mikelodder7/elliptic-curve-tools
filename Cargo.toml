@@ -10,7 +10,7 @@ license = "Apache-2.0 OR MIT"
 name = "elliptic-curve-tools"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/elliptic-curve-tools"
-version = "0.1.2"
+version = "0.2.0"
 
 [features]
 default = ["std"]
