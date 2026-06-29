@@ -14,7 +14,7 @@
 //! In addition with the `alloc` or `std` feature, it can
 //! handle serializing Vec as well.
 //!
-//! To permit serializing a [`PrimeField`]
+//! To permit serializing a [`PrimeField`](elliptic_curve::PrimeField)
 //!
 //! ```
 //! use elliptic_curve_tools::prime_field;
@@ -25,7 +25,7 @@
 //! pub struct PrimeFieldWrapper<F: PrimeField>( #[serde(with = "prime_field")] F);
 //! ```
 //!
-//! To permit serializing a [`Group`]
+//! To permit serializing a [`Group`](elliptic_curve::Group)
 //!
 //! ```
 //! use elliptic_curve_tools::group;
@@ -37,8 +37,7 @@
 //! ```
 //!
 //! Other collections can also be serialized like
-//! - Fixed sized arrays like [[`PrimeField`]; 32] or [[`Group + GroupEncoding`]; 32]
-//! -
+//! - Fixed sized arrays like `[PrimeField; 32]` or `[Group + GroupEncoding; 32]`
 //!
 #![deny(
     clippy::unwrap_used,
@@ -59,6 +58,10 @@
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod multiexp;
+// `serdes` relies on `serde` and `serdect`'s alloc-backed helpers, both of which are
+// only enabled through the `alloc`/`std` features; gate the module to match so the
+// crate still builds with `--no-default-features`.
+#[cfg(any(feature = "alloc", feature = "std"))]
 mod serdes;
 mod sum_of_products;
 
@@ -74,5 +77,8 @@ use alloc::{boxed::Box, vec::Vec};
 #[cfg(feature = "std")]
 use std::{boxed::Box, vec::Vec};
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use multiexp::{InsufficientScratch, Scratch, ScratchBuffer};
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use serdes::*;
 pub use sum_of_products::*;
