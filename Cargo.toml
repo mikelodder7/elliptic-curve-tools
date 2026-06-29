@@ -3,42 +3,39 @@ authors = ["Michael Lodder <redmike7@gmail.com>"]
 categories = ["cryptography", "algorithms"]
 description = "Extra Rust-Crypto elliptic-curve adaptors, functions, and macros"
 documentation = "https://docs.rs/elliptic-curve-tools"
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/mikelodder7/elliptic-curve-tools"
 keywords = ["crypto", "elliptic", "ecc", "serialize", "digest"]
 license = "Apache-2.0 OR MIT"
 name = "elliptic-curve-tools"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/elliptic-curve-tools"
-version = "0.2.0"
+version = "0.3.0-rc0"
 
 [features]
 default = ["std"]
-alloc = ["elliptic-curve/alloc", "hex/alloc", "serde/alloc", "multiexp", "zeroize/alloc"]
-std = ["elliptic-curve/std", "hex/std", "serde/default", "multiexp/std", "zeroize/std"]
+alloc = ["elliptic-curve/alloc", "serde/alloc", "serdect/alloc"]
+std = ["elliptic-curve/std", "serde/default", "serdect/alloc"]
 
 [dependencies]
-elliptic-curve = { version = "0.13", features = ["bits"] }
-heapless = "0.8"
-hex = { version = "0.4", optional = true }
-multiexp = { version = "0.4", default-features = false, optional = true }
+elliptic-curve = "0.14"
+heapless = "0.9"
 serde = { version = "1.0", default-features = false, optional = true }
-zeroize = { version = "1.8", default-features = false, optional = true }
+serdect = { version = "0.4", default-features = false }
 
 [dev-dependencies]
-bincode = "1.3.3"
-blsful = "2.5"
+bp256 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
+bp384 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
 ciborium = "0.2"
-curve25519-dalek-ml = { version = "4.2", features = ["group", "group-bits"] }
-ed448-goldilocks-plus = "0.12"
-k256 = { version = "0.13", features = ["arithmetic"] }
-p256 = { version = "0.13", features = ["arithmetic"] }
-p384 = { version = "0.13", features = ["arithmetic"] }
+k256 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
+p256 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
+p384 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
+p521 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
 postcard = { version = "1.0", features = ["alloc", "use-std"] }
-rstest = "0.23"
+rstest = "0.26"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_cbor = "0.11"
 serde_bare = "0.5"
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "1.1.2"

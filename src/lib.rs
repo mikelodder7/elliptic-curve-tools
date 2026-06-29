@@ -57,6 +57,8 @@
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod multiexp;
 mod serdes;
 mod sum_of_products;
 
@@ -68,9 +70,9 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 #[cfg(feature = "std")]
-use std::{boxed::Box, string::String, vec::Vec};
+use std::{boxed::Box, vec::Vec};
 
 pub use serdes::*;
 pub use sum_of_products::*;

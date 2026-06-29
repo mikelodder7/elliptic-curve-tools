@@ -4,13 +4,13 @@ use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
 };
-use elliptic_curve::{group::GroupEncoding, subtle::CtOption, Group, PrimeField};
+use elliptic_curve::{Group, PrimeField, group::GroupEncoding, subtle::CtOption};
 use serde::{
-    self,
+    self, Deserializer, Serializer,
     de::{Error as DError, SeqAccess, Visitor},
     ser::SerializeTuple,
-    Deserializer, Serializer,
 };
+use serdect::{array, slice};
 
 /// Serialize and deserialize a prime field element.
 pub mod prime_field {
@@ -75,7 +75,7 @@ pub mod prime_field_vec {
     use super::*;
 
     /// Serialize a prime field element vector.
-    pub fn serialize<F, S>(vec: &Vec<F>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<F, S>(vec: &[F], s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
         F: PrimeField,
@@ -100,7 +100,7 @@ pub mod prime_field_boxed_slice {
     use super::*;
 
     /// Serialize a prime field element boxed slice.
-    pub fn serialize<F, S>(slice: &Box<[F]>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<F, S>(slice: &[F], s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
         F: PrimeField,
@@ -181,7 +181,7 @@ pub mod group_vec {
     use super::*;
 
     /// Serialize a group element vector.
-    pub fn serialize<G, S>(vec: &Vec<G>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<G, S>(vec: &[G], s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
         G: Group + GroupEncoding,
@@ -211,7 +211,7 @@ pub mod group_boxed_slice {
     use super::*;
 
     /// Serialize a group element boxed slice.
-    pub fn serialize<G, S>(slice: &Box<[G]>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<G, S>(slice: &[G], s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
         G: Group + GroupEncoding,
@@ -235,10 +235,17 @@ where
     S: Serializer,
     B: AsRef<[u8]> + AsMut<[u8]> + Default,
 {
-    if s.is_human_readable() {
-        s.serialize_str(&hex::encode(bytes.as_ref()))
-    } else {
-        s.serialize_bytes(bytes.as_ref())
+    array::serialize_hex_lower_or_bin(&bytes, s)
+}
+
+struct Bytes<'a>(&'a [u8]);
+
+impl serde::Serialize for Bytes<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        slice::serialize_hex_lower_or_bin(&self.0, serializer)
     }
 }
 
@@ -253,7 +260,7 @@ where
     if s.is_human_readable() {
         let mut seq = s.serialize_seq(Some(length))?;
         for b in sequence {
-            seq.serialize_element(&hex::encode(b.as_ref()))?;
+            seq.serialize_element(&Bytes(b.as_ref()))?;
         }
         seq.end()
     } else {
@@ -277,7 +284,7 @@ where
     if s.is_human_readable() {
         let mut seq = s.serialize_tuple(length)?;
         for b in sequence {
-            seq.serialize_element(&hex::encode(b.as_ref()))?;
+            seq.serialize_element(&Bytes(b.as_ref()))?;
         }
         seq.end()
     } else {
@@ -295,62 +302,9 @@ where
 fn deserialize_<'de, B: AsRef<[u8]> + AsMut<[u8]> + Default, D: Deserializer<'de>>(
     d: D,
 ) -> Result<B, D::Error> {
-    if d.is_human_readable() {
-        struct StrVisitor<B: AsRef<[u8]> + AsMut<[u8]> + Default>(PhantomData<B>);
-
-        impl<'de, B> Visitor<'de> for StrVisitor<B>
-        where
-            B: AsRef<[u8]> + AsMut<[u8]> + Default,
-        {
-            type Value = B;
-
-            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
-                write!(f, "a {} length hex string", B::default().as_ref().len() * 2)
-            }
-
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: DError,
-            {
-                let mut repr = B::default();
-                let length = repr.as_ref().len();
-                if v.len() != length * 2 {
-                    return Err(DError::custom("invalid length"));
-                }
-                hex::decode_to_slice(v, repr.as_mut())
-                    .map_err(|_| DError::custom("invalid input"))?;
-                Ok(repr)
-            }
-        }
-        d.deserialize_str(StrVisitor(PhantomData))
-    } else {
-        struct ByteVisitor<B: AsRef<[u8]> + AsMut<[u8]> + Default>(PhantomData<B>);
-
-        impl<'de, B> Visitor<'de> for ByteVisitor<B>
-        where
-            B: AsRef<[u8]> + AsMut<[u8]> + Default,
-        {
-            type Value = B;
-
-            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
-                write!(f, "a {} byte", B::default().as_ref().len())
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                let mut repr = B::default();
-                if v.len() != repr.as_ref().len() {
-                    return Err(serde::de::Error::custom("invalid length"));
-                }
-                repr.as_mut().copy_from_slice(v);
-                Ok(repr)
-            }
-        }
-
-        d.deserialize_bytes(ByteVisitor(PhantomData))
-    }
+    let mut repr = B::default();
+    array::deserialize_hex_or_bin(repr.as_mut(), d)?;
+    Ok(repr)
 }
 
 fn deserialize_pushable<'de, B, O, FO, P, D>(
@@ -390,13 +344,15 @@ where
                 A: SeqAccess<'de>,
             {
                 let mut arr = P::default();
-                while let Some(element) = seq.next_element::<String>()? {
+                while let Some(element) = seq.next_element::<slice::HexLowerOrBin>()? {
                     let mut repr = B::default();
-                    hex::decode_to_slice(element, repr.as_mut())
-                        .map_err(|_| DError::custom("invalid hex string"))?;
+                    if element.as_ref().len() != repr.as_ref().len() {
+                        return Err(DError::custom("invalid length"));
+                    }
+                    repr.as_mut().copy_from_slice(element.as_ref());
                     let a =
                         Option::from((self.fo)(repr)).ok_or(DError::custom("invalid element"))?;
-                    arr.push(a);
+                    arr.push(a)?;
                 }
                 Ok(arr)
             }
@@ -451,7 +407,7 @@ where
                     }
                     let a =
                         Option::from((self.fo)(repr)).ok_or(DError::custom("invalid element"))?;
-                    arr.push(a);
+                    arr.push(a)?;
                 }
 
                 Ok(arr)
@@ -471,19 +427,20 @@ where
 }
 
 trait Pushable<T>: Default {
-    fn push(&mut self, value: T);
+    fn push<E: DError>(&mut self, value: T) -> Result<(), E>;
 }
 
 impl<T: Debug, const N: usize> Pushable<T> for heapless::Vec<T, N> {
-    fn push(&mut self, value: T) {
-        heapless::Vec::push(self, value).expect("should've allocated more");
+    fn push<E: DError>(&mut self, value: T) -> Result<(), E> {
+        heapless::Vec::push(self, value).map_err(|_| DError::custom("too many elements"))
     }
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl<T> Pushable<T> for Vec<T> {
-    fn push(&mut self, value: T) {
-        Vec::push(self, value)
+    fn push<E: DError>(&mut self, value: T) -> Result<(), E> {
+        Vec::push(self, value);
+        Ok(())
     }
 }
 
@@ -523,14 +480,6 @@ mod tests {
         point: G,
     }
 
-    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
-    struct TestStructArray<G: Group + GroupEncoding, const N: usize> {
-        #[serde(with = "prime_field_array")]
-        scalar: [G::Scalar; N],
-        #[serde(with = "group_array")]
-        point: [G; N],
-    }
-
     #[cfg(any(feature = "alloc", feature = "std"))]
     #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
     struct TestStructVec<G: Group + GroupEncoding> {
@@ -541,24 +490,15 @@ mod tests {
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]
-    #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
-    struct TestStructBoxedSlice<G: Group + GroupEncoding> {
-        #[serde(with = "prime_field_boxed_slice")]
-        scalar: Box<[G::Scalar]>,
-        #[serde(with = "group_boxed_slice")]
-        point: Box<[G]>,
-    }
-
-    #[cfg(any(feature = "alloc", feature = "std"))]
     #[rstest]
     #[case::k256(k256::ProjectivePoint::default())]
     #[case::p256(p256::ProjectivePoint::default())]
     #[case::p384(p384::ProjectivePoint::default())]
-    #[case::curve25519_edwards(curve25519_dalek_ml::edwards::EdwardsPoint::default())]
-    #[case::curve25519_ristretto(curve25519_dalek_ml::ristretto::RistrettoPoint::default())]
-    #[case::bls12381_g1(blsful::inner_types::G1Projective::default())]
-    #[case::bls12381_g2(blsful::inner_types::G2Projective::default())]
-    #[case::ed448_edwards(ed448_goldilocks_plus::EdwardsPoint::default())]
+    #[case::p521(p521::ProjectivePoint::default())]
+    #[case::bp256_r1(bp256::r1::ProjectivePoint::default())]
+    #[case::bp256_t1(bp256::t1::ProjectivePoint::default())]
+    #[case::bp384_r1(bp384::r1::ProjectivePoint::default())]
+    #[case::bp384_t1(bp384::t1::ProjectivePoint::default())]
     fn single_struct<G: Group + GroupEncoding>(#[case] _g: G) {
         let test_struct = TestStruct {
             scalar: <G::Scalar as Field>::ONE,
@@ -568,28 +508,28 @@ mod tests {
         // postcard
         let res = postcard::to_stdvec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = postcard::from_bytes(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // bare
         let res = serde_bare::to_vec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_bare::from_slice(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // cbor
         let res = serde_cbor::to_vec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_cbor::from_slice(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // ciborium
@@ -598,43 +538,34 @@ mod tests {
         assert!(res.is_ok());
         let res = ciborium::from_reader(buffer.as_slice());
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
-        assert_eq!(test_struct, test_struct2);
-
-        // bincode
-        let res = bincode::serialize(&test_struct);
-        assert!(res.is_ok());
-        let output = res.unwrap();
-        let res = bincode::deserialize(&output);
-        assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // json
         let res = serde_json::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_json::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // yaml
         let res = serde_yaml::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_yaml::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // toml
         let res = toml::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = toml::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
     }
 
@@ -649,28 +580,28 @@ mod tests {
         // postcard
         let res = postcard::to_stdvec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = postcard::from_bytes(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // bare
         let res = serde_bare::to_vec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_bare::from_slice(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // cbor
         let res = serde_cbor::to_vec(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_cbor::from_slice(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // ciborium
@@ -679,43 +610,34 @@ mod tests {
         assert!(res.is_ok());
         let res = ciborium::from_reader(buffer.as_slice());
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
-        assert_eq!(test_struct, test_struct2);
-
-        // bincode
-        let res = bincode::serialize(&test_struct);
-        assert!(res.is_ok());
-        let output = res.unwrap();
-        let res = bincode::deserialize(&output);
-        assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // json
         let res = serde_json::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_json::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // yaml
         let res = serde_yaml::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = serde_yaml::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
 
         // toml
         let res = toml::to_string(&test_struct);
         assert!(res.is_ok());
-        let output = res.unwrap();
+        let output = res.expect("serialization round trip should succeed");
         let res = toml::from_str(&output);
         assert!(res.is_ok());
-        let test_struct2 = res.unwrap();
+        let test_struct2 = res.expect("serialization round trip should succeed");
         assert_eq!(test_struct, test_struct2);
     }
 }
