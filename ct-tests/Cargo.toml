@@ -1,0 +1,26 @@
+# Standalone helper crate for constant-time verification of elliptic-curve-tools.
+#
+# These harnesses pull heavyweight, specialized dependencies (a statistics/CLI stack
+# for dudect, and Valgrind bindings for ctgrind) that have no place in the main crate's
+# dependency graph. The empty `[workspace]` table makes this its own workspace, so the
+# parent crate's CI never builds it. Run the harnesses manually — see README.md.
+[package]
+name = "elliptic-curve-tools-ct-tests"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0 OR MIT"
+
+[workspace]
+
+[dependencies]
+elliptic-curve-tools = { path = ".." }
+elliptic-curve = "0.14"
+k256 = { version = "0.14.0-rc.15", features = ["arithmetic"] }
+dudect-bencher = "0.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+crabgrind = "0.2"
+
+[[example]]
+name = "ctgrind"
