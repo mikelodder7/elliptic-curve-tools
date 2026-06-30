@@ -78,7 +78,7 @@ use alloc::{boxed::Box, vec::Vec};
 use std::{boxed::Box, vec::Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub use multiexp::{InsufficientScratch, Scratch, ScratchBuffer};
+pub use multiexp::{InsufficientScratch, LengthMismatch, Precomputed, Scratch, ScratchBuffer};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use serdes::*;
 pub use sum_of_products::*;

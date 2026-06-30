@@ -88,12 +88,76 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Scratch, ScratchBuffer};
+    use crate::{LengthMismatch, Precomputed, Scratch, ScratchBuffer};
     #[cfg(all(feature = "alloc", not(feature = "std")))]
     use alloc::vec::Vec;
     use elliptic_curve::{Field, PrimeField};
     #[cfg(feature = "std")]
     use std::vec::Vec;
+
+    fn pseudo_random_scalars<G>(n: usize, seed: u64) -> Vec<G::Scalar>
+    where
+        G: Group,
+    {
+        let mut state = seed | 1;
+        (0..n)
+            .map(|_| {
+                let mut repr = <G::Scalar as PrimeField>::Repr::default();
+                let bytes: &mut [u8] = repr.as_mut();
+                for b in bytes.iter_mut() {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    *b = (state & 0xff) as u8;
+                }
+                bytes[0] = 0;
+                Option::<G::Scalar>::from(G::Scalar::from_repr(repr)).unwrap_or(G::Scalar::ONE)
+            })
+            .collect()
+    }
+
+    fn assert_precomputed_matches<G>()
+    where
+        G: ConditionallySelectable + Group,
+        G::Scalar: Field,
+    {
+        let generator = G::generator();
+        for &n in &[1usize, 2, 5, 33, 64, 129] {
+            let points: Vec<G> = pseudo_random_scalars::<G>(n, 0xA1 ^ n as u64)
+                .iter()
+                .map(|s| generator * s)
+                .collect();
+            let scalars = pseudo_random_scalars::<G>(n, 0xB2 ^ n as u64);
+            let naive: G = points
+                .iter()
+                .zip(scalars.iter())
+                .map(|(point, scalar)| *point * scalar)
+                .sum();
+
+            let precomputed = Precomputed::new(&points);
+            assert_eq!(precomputed.len(), n);
+            assert_eq!(precomputed.sum_of_products(&scalars), Ok(naive), "ct n={n}");
+            assert_eq!(
+                precomputed.sum_of_products_vartime(&scalars),
+                Ok(naive),
+                "vartime n={n}"
+            );
+            assert_eq!(
+                precomputed.sum_of_products_iter(scalars.iter().copied()),
+                Ok(naive),
+                "iter n={n}"
+            );
+        }
+
+        let precomputed = Precomputed::new(&[generator, generator, generator]);
+        assert!(matches!(
+            precomputed.sum_of_products_vartime(&[<G::Scalar as Field>::ONE; 2]),
+            Err(LengthMismatch {
+                points: 3,
+                scalars: 2
+            })
+        ));
+    }
 
     fn varied_pairs<G>(n: usize) -> Vec<(G::Scalar, G)>
     where
@@ -251,6 +315,18 @@ mod tests {
         assert_pippenger_sums_scalar_products::<bp256::t1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::r1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::t1::ProjectivePoint>();
+    }
+
+    #[test]
+    fn precomputed_matches_naive() {
+        assert_precomputed_matches::<k256::ProjectivePoint>();
+        assert_precomputed_matches::<p256::ProjectivePoint>();
+        assert_precomputed_matches::<p384::ProjectivePoint>();
+        assert_precomputed_matches::<p521::ProjectivePoint>();
+        assert_precomputed_matches::<bp256::r1::ProjectivePoint>();
+        assert_precomputed_matches::<bp256::t1::ProjectivePoint>();
+        assert_precomputed_matches::<bp384::r1::ProjectivePoint>();
+        assert_precomputed_matches::<bp384::t1::ProjectivePoint>();
     }
 
     #[test]
