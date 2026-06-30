@@ -91,7 +91,7 @@ mod tests {
     use crate::{Scratch, ScratchBuffer};
     #[cfg(all(feature = "alloc", not(feature = "std")))]
     use alloc::vec::Vec;
-    use elliptic_curve::Field;
+    use elliptic_curve::{Field, PrimeField};
     #[cfg(feature = "std")]
     use std::vec::Vec;
 
@@ -107,6 +107,44 @@ mod tests {
                 (acc, G::generator())
             })
             .collect()
+    }
+
+    // High-entropy (deterministic) scalars to stress the signed-digit recoder across
+    // many bit patterns. Clearing the top byte keeps each value below the group order.
+    fn pseudo_random_pairs<G>(n: usize, seed: u64) -> Vec<(G::Scalar, G)>
+    where
+        G: Group,
+    {
+        let g = G::generator();
+        let mut state = seed | 1;
+        (0..n)
+            .map(|_| {
+                let mut repr = <G::Scalar as PrimeField>::Repr::default();
+                let bytes: &mut [u8] = repr.as_mut();
+                for b in bytes.iter_mut() {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    *b = (state & 0xff) as u8;
+                }
+                bytes[0] = 0; // guarantee value < group order
+                let scalar =
+                    Option::<G::Scalar>::from(G::Scalar::from_repr(repr)).unwrap_or(G::Scalar::ONE);
+                (scalar, g)
+            })
+            .collect()
+    }
+
+    fn assert_random_matches_naive<G>(sizes: &[usize])
+    where
+        G: ConditionallySelectable + Group + SumOfProducts,
+    {
+        for (i, &n) in sizes.iter().enumerate() {
+            let pairs = pseudo_random_pairs::<G>(n, 0x9E37_79B9_7F4A_7C15 ^ (n as u64) ^ i as u64);
+            let naive: G = pairs.iter().map(|(scalar, point)| *point * scalar).sum();
+            assert_eq!(G::sum_of_products(&pairs), naive, "ct n={n}");
+            assert_eq!(G::sum_of_products_vartime(&pairs), naive, "vartime n={n}");
+        }
     }
 
     fn assert_inplace_matches_allocating<G>()
@@ -213,6 +251,23 @@ mod tests {
         assert_pippenger_sums_scalar_products::<bp256::t1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::r1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::t1::ProjectivePoint>();
+    }
+
+    #[test]
+    fn random_matches_naive() {
+        // Small/medium sizes across every curve (different bit lengths exercise the
+        // recoder's window count and carry differently).
+        let small = [2usize, 3, 7, 31, 63, 127, 130, 200];
+        assert_random_matches_naive::<k256::ProjectivePoint>(&small);
+        assert_random_matches_naive::<p256::ProjectivePoint>(&small);
+        assert_random_matches_naive::<p384::ProjectivePoint>(&small);
+        assert_random_matches_naive::<p521::ProjectivePoint>(&small);
+        assert_random_matches_naive::<bp256::r1::ProjectivePoint>(&small);
+        assert_random_matches_naive::<bp256::t1::ProjectivePoint>(&small);
+        assert_random_matches_naive::<bp384::r1::ProjectivePoint>(&small);
+        assert_random_matches_naive::<bp384::t1::ProjectivePoint>(&small);
+        // Larger sizes (one representative curve) to cover every Pippenger window.
+        assert_random_matches_naive::<k256::ProjectivePoint>(&[401, 801]);
     }
 
     #[test]
