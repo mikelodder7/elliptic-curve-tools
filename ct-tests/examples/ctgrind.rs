@@ -13,7 +13,6 @@
 #[cfg(target_os = "linux")]
 fn main() {
     use core::ffi::c_void;
-    use core::mem::size_of_val;
     use crabgrind::memcheck::{MemState, mark_memory};
     use elliptic_curve::{Field, Group};
     use elliptic_curve_tools::SumOfProducts;
@@ -38,7 +37,7 @@ fn main() {
     for (scalar, _) in &pairs {
         let _ = mark_memory(
             (scalar as *const Scalar) as *const c_void,
-            size_of_val(scalar),
+            core::mem::size_of_val(scalar),
             MemState::Undefined,
         );
     }
@@ -48,7 +47,7 @@ fn main() {
     // Re-define the result so simply consuming it doesn't raise a spurious report.
     let _ = mark_memory(
         (&result as *const G) as *const c_void,
-        size_of_val(&result),
+        core::mem::size_of_val(&result),
         MemState::Defined,
     );
     core::hint::black_box(result);

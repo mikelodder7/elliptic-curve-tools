@@ -124,3 +124,20 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall --no-confirm cargo-pants
       - run: cargo pants --loud --dev
+
+  ctgrind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      # valgrind runs the harness; libclang lets crabgrind's bindgen build (it vendors
+      # the Valgrind headers, so no valgrind-dev package is needed at build time).
+      - run: sudo apt-get update && sudo apt-get install -y valgrind libclang-dev
+      - name: Build ctgrind harness
+        working-directory: ct-tests
+        run: cargo build --release --example ctgrind
+      - name: Run sum_of_products under Valgrind memcheck
+        working-directory: ct-tests
+        run: valgrind --error-exitcode=1 --track-origins=yes ./target/release/examples/ctgrind
