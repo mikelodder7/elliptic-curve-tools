@@ -50,8 +50,18 @@ fn curve25519_dalek_ml_ristretto() {
 }
 
 #[test]
+fn curve25519_dalek_ml_edwards() {
+    check::<curve25519_dalek_ml::EdwardsPoint>("ed25519 edwards");
+}
+
+#[test]
 fn ed448_goldilocks_plus_edwards() {
-    check::<ed448_goldilocks_plus::EdwardsPoint>("ed448");
+    check::<ed448_goldilocks_plus::EdwardsPoint>("ed448 edwards");
+}
+
+#[test]
+fn ed448_goldilocks_plus_decaf() {
+    check::<ed448_goldilocks_plus::DecafPoint>("ed448 decaf");
 }
 
 #[test]
