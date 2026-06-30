@@ -16,12 +16,17 @@ version = "0.3.0-rc0"
 default = ["std"]
 alloc = ["elliptic-curve/alloc", "serde/alloc", "serdect/alloc"]
 std = ["elliptic-curve/std", "serde/default", "serdect/alloc"]
+# Bridge for curves still on the group/ff 0.13 traits (see the `legacy` module).
+legacy = ["dep:group_013", "dep:ff_013", "dep:rand_core"]
 
 [dependencies]
 elliptic-curve = "0.14"
 heapless = "0.9"
 serde = { version = "1.0", default-features = false, optional = true }
 serdect = { version = "0.4", default-features = false }
+group_013 = { package = "group", version = "0.13", default-features = false, optional = true }
+ff_013 = { package = "ff", version = "0.13", default-features = false, optional = true }
+rand_core = { version = "0.10", default-features = false, optional = true }
 
 [dev-dependencies]
 bp256 = { version = "0.14.0-rc.15", features = ["arithmetic"] }

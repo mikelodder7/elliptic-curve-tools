@@ -14,6 +14,10 @@
 //! In addition with the `alloc` or `std` feature, it can
 //! handle serializing Vec as well.
 //!
+//! Curves still on the `group`/`ff` 0.13 traits (curve25519-dalek, ed448-goldilocks,
+//! bls12-381 forks, ...) can use these functions through the `legacy` feature and its
+//! `legacy` module.
+//!
 //! To permit serializing a [`PrimeField`](elliptic_curve::PrimeField)
 //!
 //! ```
@@ -56,6 +60,8 @@
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
+#[cfg(feature = "legacy")]
+pub mod legacy;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod multiexp;
 // `serdes` relies on `serde` and `serdect`'s alloc-backed helpers, both of which are

@@ -112,7 +112,9 @@ jobs:
           toolchain: nightly
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall --no-confirm cargo-outdated
-      - run: cargo outdated --root-deps-only --exit-code 1
+      # group/ff 0.13 are pulled only by the `legacy` feature, which exists precisely to
+      # bridge those older versions, so they are expected to be "outdated".
+      - run: cargo outdated --root-deps-only --exit-code 1 --ignore ff --ignore group
 
   pants:
     runs-on: ubuntu-latest
