@@ -1,43 +1,37 @@
-//! Proves `elliptic_curve_tools::SumOfProducts::sum_of_products` produces correct
-//! results for curve crates still on the group/ff 0.13 ecosystem, via the 0.13->0.14
-//! [`adapter`].
+//! Proves `elliptic_curve_tools`'s `legacy` feature lets `sum_of_products` run on curve
+//! crates still on the group/ff 0.13 ecosystem — calling the ergonomic trait directly on
+//! the native point types, no manual wrapping.
 //!
-//! The pairs and the reference sum are built with each curve's *native* 0.13 arithmetic,
-//! then wrapped; only the multiexp itself runs through the adapter. So a mismatch would
-//! catch either an adapter delegation bug or an algorithm bug.
+//! Pairs and the reference sum are built with each curve's own 0.13 arithmetic, so a
+//! mismatch would catch a bridge bug or an algorithm bug.
 
-use adapter::{G14, S14};
-use elliptic_curve_tools::SumOfProducts;
+use elliptic_curve_tools::legacy::SumOfProducts;
 use ff_013::Field;
 use group_013::Group;
 use subtle::ConditionallySelectable;
 
 fn check<P>(label: &str)
 where
-    P: Group + ConditionallySelectable,
+    P: Group + ConditionallySelectable + SumOfProducts,
 {
     for &n in &[2usize, 5, 33, 130] {
         let generator = P::generator();
         let one = <P::Scalar as Field>::ONE;
         let mut acc = one;
-        let mut pairs: Vec<(S14<P::Scalar>, G14<P>)> = Vec::with_capacity(n);
+        let mut pairs: Vec<(P::Scalar, P)> = Vec::with_capacity(n);
         for _ in 0..n {
             acc += one;
             let scalar = acc + acc; // some varied scalar
             let point = generator * acc; // distinct public point
-            pairs.push((S14(scalar), G14(point)));
+            pairs.push((scalar, point));
         }
 
-        // Reference computed with the curve's own arithmetic, independent of the adapter.
-        let native: P = pairs.iter().map(|(s, p)| p.0 * s.0).sum();
+        // Reference computed with the curve's own arithmetic, independent of the bridge.
+        let native: P = pairs.iter().map(|(s, p)| *p * *s).sum();
 
+        assert_eq!(P::sum_of_products(&pairs), native, "constant-time {label} n={n}");
         assert_eq!(
-            <G14<P> as SumOfProducts>::sum_of_products(&pairs).0,
-            native,
-            "constant-time {label} n={n}"
-        );
-        assert_eq!(
-            <G14<P> as SumOfProducts>::sum_of_products_vartime(&pairs).0,
+            P::sum_of_products_vartime(&pairs),
             native,
             "variable-time {label} n={n}"
         );
@@ -74,8 +68,7 @@ fn bls12_381_plus_g2() {
     check::<bls12_381_plus::G2Projective>("bls12_381 G2");
 }
 
-// Big-endian control: proves the adapter (and the endianness handling) is correct for a
-// big-endian `to_repr` curve too, routed through the same 0.13->0.14 bridge.
+// Big-endian control: a big-endian `to_repr` curve through the same bridge.
 #[test]
 fn k256_big_endian_control() {
     check::<k256::ProjectivePoint>("k256");

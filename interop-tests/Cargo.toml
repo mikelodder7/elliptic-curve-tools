@@ -1,8 +1,7 @@
-# Generic adapter + tests proving `sum_of_products` works with curve crates that are
-# still on the group/ff 0.13 ecosystem (curve25519-dalek-ml, ed448-goldilocks-plus,
-# bls12_381_plus). The adapter bridges any `group`/`ff` 0.13 type to the 0.14 traits
-# that elliptic-curve-tools requires. Standalone workspace so the dual group/ff
-# versions and the heavy curve dependencies never touch the main crate.
+# Integration tests for the `legacy` feature: proves elliptic-curve-tools' sum_of_products
+# works with curve crates still on the group/ff 0.13 ecosystem (curve25519-dalek-ml,
+# ed448-goldilocks-plus, bls12_381_plus). Standalone workspace so these heavy 0.13 curve
+# dependencies never touch the main crate's dependency graph or its strict CI.
 [package]
 name = "elliptic-curve-tools-interop-tests"
 version = "0.0.0"
@@ -12,21 +11,11 @@ license = "Apache-2.0 OR MIT"
 
 [workspace]
 
-[lib]
-name = "adapter"
-
-[dependencies]
-# Target ecosystem (the versions elliptic-curve-tools uses).
-group = "0.14"
-ff = "0.14"
-subtle = "2.6"
-rand_core = "0.10"
-# Source ecosystem (what the 0.13-era curve crates implement).
+[dev-dependencies]
+elliptic-curve-tools = { path = "..", features = ["legacy"] }
 group_013 = { package = "group", version = "0.13" }
 ff_013 = { package = "ff", version = "0.13" }
-
-[dev-dependencies]
-elliptic-curve-tools = { path = ".." }
+subtle = "2.6"
 curve25519-dalek-ml = { version = "4.3", features = ["group"] }
 ed448-goldilocks-plus = "0.16"
 bls12_381_plus = "0.8"
