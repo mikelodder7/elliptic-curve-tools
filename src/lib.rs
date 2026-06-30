@@ -8,11 +8,9 @@
 //! fields and groups.
 //!
 //! This crate provides multi-exponentiation functions
-//! and serialization for different types of scalars and groups.
-//! Serialization doesn't use any allocations and is no_std compliant.
-//!
-//! In addition with the `alloc` or `std` feature, it can
-//! handle serializing Vec as well.
+//! and `serde` serialization for different types of scalars and groups,
+//! including fixed-size array, `Vec`, and `Box<[_]>` collections.
+//! These require the `alloc` or `std` feature.
 //!
 //! Curves still on the `group`/`ff` 0.13 traits (curve25519-dalek, ed448-goldilocks,
 //! bls12-381 forks, ...) can use these functions through the `legacy` feature and its
