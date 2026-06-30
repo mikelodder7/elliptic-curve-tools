@@ -327,6 +327,14 @@ impl<P: Group013Trait + ConditionallySelectable> Group for Group013<P> {
 
 // ----- ergonomic entry point ----------------------------------------------------
 
+/// Reusable scratch for the in-place methods on a 0.13 group `P`.
+///
+/// An alias for [`crate::Scratch`] over the bridged group type. Allocate once with
+/// [`Scratch::new`](crate::Scratch::new) (e.g. `legacy::Scratch::<MyPoint>::new(n)`) and
+/// reuse it to avoid reallocating the multiexp tables across calls.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub type Scratch<P> = crate::Scratch<Group013<P>>;
+
 /// Sum of scalar products for curves still on the `group`/`ff` 0.13 traits.
 ///
 /// Mirrors [`crate::SumOfProducts`] but is implemented directly for any 0.13 group
@@ -338,6 +346,30 @@ pub trait SumOfProducts: Group013Trait + ConditionallySelectable {
 
     /// Variable-time `sum(scalar_i * point_i)`. Use only when every scalar is public.
     fn sum_of_products_vartime(pairs: &[(<Self as Group013Trait>::Scalar, Self)]) -> Self;
+
+    /// Constant-time [`sum_of_products`](SumOfProducts::sum_of_products) reusing a
+    /// caller-owned [`Scratch`], avoiding reallocating the multiexp tables each call.
+    ///
+    /// The bridge still wraps `pairs` into a temporary `Vec` per call; for a fully
+    /// streaming call use [`sum_of_products_iter`](SumOfProducts::sum_of_products_iter).
+    fn sum_of_products_inplace(
+        pairs: &[(<Self as Group013Trait>::Scalar, Self)],
+        scratch: &mut Scratch<Self>,
+    ) -> Result<Self, crate::InsufficientScratch>;
+
+    /// Variable-time [`sum_of_products_vartime`](SumOfProducts::sum_of_products_vartime)
+    /// reusing a caller-owned [`Scratch`].
+    fn sum_of_products_vartime_inplace(
+        pairs: &[(<Self as Group013Trait>::Scalar, Self)],
+        scratch: &mut Scratch<Self>,
+    ) -> Result<Self, crate::InsufficientScratch>;
+
+    /// Constant-time [`sum_of_products`](SumOfProducts::sum_of_products) reading pairs from
+    /// an iterator (for example a `zip`) without collecting them into a slice first.
+    fn sum_of_products_iter<I>(pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (<Self as Group013Trait>::Scalar, Self)>,
+        I::IntoIter: ExactSizeIterator;
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -354,6 +386,34 @@ where
     fn sum_of_products_vartime(pairs: &[(P::Scalar, Self)]) -> Self {
         let wrapped = wrap(pairs);
         crate::SumOfProducts::sum_of_products_vartime(wrapped.as_slice()).0
+    }
+
+    fn sum_of_products_inplace(
+        pairs: &[(P::Scalar, Self)],
+        scratch: &mut Scratch<Self>,
+    ) -> Result<Self, crate::InsufficientScratch> {
+        let wrapped = wrap(pairs);
+        crate::SumOfProducts::sum_of_products_inplace(wrapped.as_slice(), scratch).map(|g| g.0)
+    }
+
+    fn sum_of_products_vartime_inplace(
+        pairs: &[(P::Scalar, Self)],
+        scratch: &mut Scratch<Self>,
+    ) -> Result<Self, crate::InsufficientScratch> {
+        let wrapped = wrap(pairs);
+        crate::SumOfProducts::sum_of_products_vartime_inplace(wrapped.as_slice(), scratch)
+            .map(|g| g.0)
+    }
+
+    fn sum_of_products_iter<I>(pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (P::Scalar, Self)>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let wrapped = pairs
+            .into_iter()
+            .map(|(scalar, point)| (Scalar013(scalar), Group013(point)));
+        crate::SumOfProducts::sum_of_products_iter(wrapped).0
     }
 }
 

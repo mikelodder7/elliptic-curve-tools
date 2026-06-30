@@ -5,7 +5,7 @@
 //! Pairs and the reference sum are built with each curve's own 0.13 arithmetic, so a
 //! mismatch would catch a bridge bug or an algorithm bug.
 
-use elliptic_curve_tools::legacy::SumOfProducts;
+use elliptic_curve_tools::legacy::{Scratch, SumOfProducts};
 use ff_013::Field;
 use group_013::Group;
 use subtle::ConditionallySelectable;
@@ -34,6 +34,23 @@ where
             P::sum_of_products_vartime(&pairs),
             native,
             "variable-time {label} n={n}"
+        );
+        assert_eq!(
+            P::sum_of_products_iter(pairs.iter().copied()),
+            native,
+            "iter {label} n={n}"
+        );
+
+        let mut scratch = Scratch::<P>::new(n);
+        assert_eq!(
+            P::sum_of_products_inplace(&pairs, &mut scratch),
+            Ok(native),
+            "inplace {label} n={n}"
+        );
+        assert_eq!(
+            P::sum_of_products_vartime_inplace(&pairs, &mut scratch),
+            Ok(native),
+            "vartime inplace {label} n={n}"
         );
     }
 }
