@@ -99,12 +99,24 @@ fn signed_table_len(window: u8) -> usize {
     (1_usize << (window - 1)) + 1
 }
 
+/// Whether `F::Repr` stores the least-significant byte first (little-endian).
+///
+/// `PrimeField` does not fix an endianness for `to_repr`: the RustCrypto Weierstrass
+/// curves are big-endian, while curve25519/ed448/bls12-381-style fields are little-endian.
+/// This is decided from `ONE`'s representation — a public constant — so it depends only
+/// on the field type and never on a secret scalar.
+fn little_endian_repr<F: PrimeField>() -> bool {
+    let repr = F::ONE.to_repr();
+    repr.as_ref().first().copied() == Some(1)
+}
+
 /// Recode every scalar into signed windowed digits, packed into `digits`.
 ///
 /// Each digit lies in `[-2^(w-1), 2^(w-1)-1]`, stored as an `i8` reinterpreted as `u8`.
 /// `digits` must be exactly `pairs.len() * signed_digit_count::<G>(window)` long; every
-/// entry is written, so the buffer may be reused. Runs in constant time: control flow
-/// depends only on the window size and scalar bit length, never on scalar values.
+/// entry is written, so the buffer may be reused. Handles both `to_repr` endiannesses.
+/// Runs in constant time: control flow depends only on the window size, scalar bit
+/// length, and (public) repr endianness, never on scalar values.
 fn recode_signed<F: PrimeField>(
     scalars: impl IntoIterator<Item = F>,
     window: u8,
@@ -116,10 +128,12 @@ fn recode_signed<F: PrimeField>(
     let mask = (1_u32 << w) - 1;
     let half = 1_i32 << (w - 1);
     let base = 1_i32 << w;
+    let little_endian = little_endian_repr::<F>();
 
     for (scalar_index, scalar) in scalars.into_iter().enumerate() {
         let repr = scalar.to_repr();
         let bytes: &[u8] = repr.as_ref();
+        let len = bytes.len();
         let offset = scalar_index * count;
 
         let mut accumulator = 0_u32;
@@ -135,8 +149,14 @@ fn recode_signed<F: PrimeField>(
             (signed as i8) as u8
         };
 
-        for byte in bytes.iter().rev() {
-            accumulator |= u32::from(*byte) << available_bits;
+        // Walk bytes least-significant first regardless of the repr's endianness.
+        for index in 0..len {
+            let byte = if little_endian {
+                bytes[index]
+            } else {
+                bytes[len - 1 - index]
+            };
+            accumulator |= u32::from(byte) << available_bits;
             available_bits += 8;
             while available_bits >= w && produced < windows {
                 let unsigned = (accumulator & mask) as i32;
