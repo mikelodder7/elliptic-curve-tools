@@ -386,6 +386,52 @@ where
     }
 }
 
+/// Constant-time sum of scalar products read from an iterator of pairs.
+///
+/// The constant-time path is always Straus, which touches each pair exactly once (to
+/// recode its scalar and build its table), so the input can be consumed as a stream.
+/// The variable-time path has no streaming equivalent: Pippenger revisits every point
+/// once per window, which a single-pass iterator cannot provide.
+pub(crate) fn multiexp_iter<G, I>(pairs: I) -> G
+where
+    G: ConditionallySelectable + Group,
+    I: IntoIterator<Item = (G::Scalar, G)>,
+    I::IntoIter: ExactSizeIterator,
+{
+    let mut iter = pairs.into_iter();
+    let n = iter.len();
+    if n == 0 {
+        return G::identity();
+    }
+    if n == 1 {
+        if let Some((scalar, point)) = iter.next() {
+            return point * scalar;
+        }
+        return G::identity();
+    }
+
+    let window = STRAUS_CT_WINDOW;
+    let count = signed_digit_count::<G>(window);
+    let len = signed_table_len(window);
+    let mut digits = vec![0u8; n * count];
+    let mut tables = vec![G::identity(); n * len];
+
+    for (index, (scalar, point)) in iter.take(n).enumerate() {
+        recode_signed(
+            core::iter::once(scalar),
+            window,
+            &mut digits[index * count..index * count + count],
+        );
+        fill_signed_tables(
+            core::iter::once(point),
+            window,
+            &mut tables[index * len..index * len + len],
+        );
+    }
+
+    straus_accumulate_ct(window, count, len, &digits, &tables)
+}
+
 /// Compute the sum of scalar products using variable-time table lookups.
 pub(crate) fn multiexp_vartime<G>(pairs: &[(G::Scalar, G)]) -> G
 where

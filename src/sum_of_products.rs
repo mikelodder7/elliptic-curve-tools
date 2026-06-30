@@ -49,6 +49,19 @@ pub trait SumOfProducts: Group {
         pairs: &[(Self::Scalar, Self)],
         scratch: &mut crate::Scratch<Self>,
     ) -> Result<Self, crate::InsufficientScratch>;
+
+    /// Constant-time [`SumOfProducts::sum_of_products`] reading pairs from an iterator,
+    /// avoiding the need to first materialize a `&[(Scalar, Self)]` slice.
+    ///
+    /// Only the constant-time path offers this: it is always Straus, which streams over
+    /// the pairs in a single pass. The variable-time path may use Pippenger, which
+    /// revisits the points once per window and so cannot consume a one-pass iterator.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn sum_of_products_iter<I>(pairs: I) -> Self
+    where
+        Self: ConditionallySelectable,
+        I: IntoIterator<Item = (Self::Scalar, Self)>,
+        I::IntoIter: ExactSizeIterator;
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -82,6 +95,15 @@ where
         scratch: &mut crate::Scratch<Self>,
     ) -> Result<Self, crate::InsufficientScratch> {
         crate::multiexp::multiexp_vartime_inplace(pairs, scratch)
+    }
+
+    fn sum_of_products_iter<I>(pairs: I) -> Self
+    where
+        Self: ConditionallySelectable,
+        I: IntoIterator<Item = (Self::Scalar, Self)>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        crate::multiexp::multiexp_iter(pairs)
     }
 }
 
@@ -208,6 +230,11 @@ mod tests {
             let naive: G = pairs.iter().map(|(scalar, point)| *point * scalar).sum();
             assert_eq!(G::sum_of_products(&pairs), naive, "ct n={n}");
             assert_eq!(G::sum_of_products_vartime(&pairs), naive, "vartime n={n}");
+            assert_eq!(
+                G::sum_of_products_iter(pairs.iter().copied()),
+                naive,
+                "iter n={n}"
+            );
         }
     }
 
