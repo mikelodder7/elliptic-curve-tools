@@ -10,7 +10,11 @@ license = "Apache-2.0 OR MIT"
 name = "elliptic-curve-tools"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/elliptic-curve-tools"
-version = "0.3.0-rc0"
+version = "0.3.0-rc1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std"]
