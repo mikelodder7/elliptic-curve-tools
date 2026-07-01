@@ -330,6 +330,8 @@ mod tests {
         assert_straus_sums_scalar_products::<bp256::t1::ProjectivePoint>();
         assert_straus_sums_scalar_products::<bp384::r1::ProjectivePoint>();
         assert_straus_sums_scalar_products::<bp384::t1::ProjectivePoint>();
+        assert_straus_sums_scalar_products::<curve25519_dalek::RistrettoPoint>();
+        assert_straus_sums_scalar_products::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
@@ -342,6 +344,8 @@ mod tests {
         assert_pippenger_sums_scalar_products::<bp256::t1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::r1::ProjectivePoint>();
         assert_pippenger_sums_scalar_products::<bp384::t1::ProjectivePoint>();
+        assert_pippenger_sums_scalar_products::<curve25519_dalek::RistrettoPoint>();
+        assert_pippenger_sums_scalar_products::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
@@ -354,6 +358,8 @@ mod tests {
         assert_precomputed_matches::<bp256::t1::ProjectivePoint>();
         assert_precomputed_matches::<bp384::r1::ProjectivePoint>();
         assert_precomputed_matches::<bp384::t1::ProjectivePoint>();
+        assert_precomputed_matches::<curve25519_dalek::RistrettoPoint>();
+        assert_precomputed_matches::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
@@ -369,6 +375,8 @@ mod tests {
         assert_random_matches_naive::<bp256::t1::ProjectivePoint>(&small);
         assert_random_matches_naive::<bp384::r1::ProjectivePoint>(&small);
         assert_random_matches_naive::<bp384::t1::ProjectivePoint>(&small);
+        assert_random_matches_naive::<curve25519_dalek::RistrettoPoint>(&small);
+        assert_random_matches_naive::<curve25519_dalek::EdwardsPoint>(&small);
         // Larger sizes (one representative curve) to cover every Pippenger window.
         assert_random_matches_naive::<k256::ProjectivePoint>(&[401, 801]);
     }
@@ -383,6 +391,8 @@ mod tests {
         assert_variable_time_matches_constant_time::<bp256::t1::ProjectivePoint>();
         assert_variable_time_matches_constant_time::<bp384::r1::ProjectivePoint>();
         assert_variable_time_matches_constant_time::<bp384::t1::ProjectivePoint>();
+        assert_variable_time_matches_constant_time::<curve25519_dalek::RistrettoPoint>();
+        assert_variable_time_matches_constant_time::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
@@ -395,6 +405,8 @@ mod tests {
         assert_inplace_matches_allocating::<bp256::t1::ProjectivePoint>();
         assert_inplace_matches_allocating::<bp384::r1::ProjectivePoint>();
         assert_inplace_matches_allocating::<bp384::t1::ProjectivePoint>();
+        assert_inplace_matches_allocating::<curve25519_dalek::RistrettoPoint>();
+        assert_inplace_matches_allocating::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
@@ -407,5 +419,7 @@ mod tests {
         assert_undersized_scratch_errors::<bp256::t1::ProjectivePoint>();
         assert_undersized_scratch_errors::<bp384::r1::ProjectivePoint>();
         assert_undersized_scratch_errors::<bp384::t1::ProjectivePoint>();
+        assert_undersized_scratch_errors::<curve25519_dalek::RistrettoPoint>();
+        assert_undersized_scratch_errors::<curve25519_dalek::EdwardsPoint>();
     }
 }

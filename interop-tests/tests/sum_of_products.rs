@@ -65,6 +65,18 @@ fn curve25519_dalek_ml_edwards() {
     check::<curve25519_dalek_ml::EdwardsPoint>("ed25519 edwards");
 }
 
+// Upstream curve25519-dalek 4.1.3 is still on the group/ff 0.13 ecosystem, so it goes
+// through the same `legacy` bridge as the `-ml` fork above.
+#[test]
+fn curve25519_dalek_v4_ristretto() {
+    check::<dalek4::RistrettoPoint>("dalek 4.1.3 ristretto");
+}
+
+#[test]
+fn curve25519_dalek_v4_edwards() {
+    check::<dalek4::EdwardsPoint>("dalek 4.1.3 ed25519 edwards");
+}
+
 #[test]
 fn ed448_goldilocks_plus_edwards() {
     check::<ed448_goldilocks_plus::EdwardsPoint>("ed448 edwards");
