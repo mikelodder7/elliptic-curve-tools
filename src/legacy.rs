@@ -350,8 +350,10 @@ pub trait SumOfProducts: Group013Trait + ConditionallySelectable {
     /// Constant-time [`sum_of_products`](SumOfProducts::sum_of_products) reusing a
     /// caller-owned [`Scratch`], avoiding reallocating the multiexp tables each call.
     ///
-    /// The bridge still wraps `pairs` into a temporary `Vec` per call; for a fully
-    /// streaming call use [`sum_of_products_iter`](SumOfProducts::sum_of_products_iter).
+    /// The bridge still wraps `pairs` into a temporary `Vec` per call, whose scalars it
+    /// overwrites with zero afterwards (best effort, since the scalar type need not
+    /// implement `Zeroize`). For a fully streaming call use
+    /// [`sum_of_products_iter`](SumOfProducts::sum_of_products_iter).
     fn sum_of_products_inplace(
         pairs: &[(<Self as Group013Trait>::Scalar, Self)],
         scratch: &mut Scratch<Self>,
@@ -379,8 +381,14 @@ where
     P::Scalar: PrimeField013,
 {
     fn sum_of_products(pairs: &[(P::Scalar, Self)]) -> Self {
-        let wrapped = wrap(pairs);
-        crate::SumOfProducts::sum_of_products(wrapped.as_slice()).0
+        // Streamed into the constant-time multiexp, so the (secret) scalars are not copied
+        // into a temporary buffer. The result is that of the slice path: both are Straus.
+        crate::SumOfProducts::sum_of_products_iter(
+            pairs
+                .iter()
+                .map(|(scalar, point)| (Scalar013(*scalar), Group013(*point))),
+        )
+        .0
     }
 
     fn sum_of_products_vartime(pairs: &[(P::Scalar, Self)]) -> Self {
@@ -392,8 +400,11 @@ where
         pairs: &[(P::Scalar, Self)],
         scratch: &mut Scratch<Self>,
     ) -> Result<Self, crate::InsufficientScratch> {
-        let wrapped = wrap(pairs);
-        crate::SumOfProducts::sum_of_products_inplace(wrapped.as_slice(), scratch).map(|g| g.0)
+        let mut wrapped = wrap(pairs);
+        let result =
+            crate::SumOfProducts::sum_of_products_inplace(wrapped.as_slice(), scratch).map(|g| g.0);
+        clear_scalars(&mut wrapped);
+        result
     }
 
     fn sum_of_products_vartime_inplace(
@@ -421,6 +432,22 @@ where
 use alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
+
+/// Overwrites the scalars of `wrapped` with zero after a constant-time call. The scalar
+/// type is not required to implement `Zeroize`, so the buffer is passed through
+/// [`core::hint::black_box`] to keep the stores from being elided before it is freed
+/// (best effort).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn clear_scalars<P>(wrapped: &mut [(Scalar013<P::Scalar>, Group013<P>)])
+where
+    P: Group013Trait,
+    P::Scalar: PrimeField013,
+{
+    for (scalar, _) in wrapped.iter_mut() {
+        *scalar = Scalar013(<P::Scalar as ff_013::Field>::ZERO);
+    }
+    core::hint::black_box(wrapped);
+}
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn wrap<P>(pairs: &[(P::Scalar, P)]) -> Vec<(Scalar013<P::Scalar>, Group013<P>)>
