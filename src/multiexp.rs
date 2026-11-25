@@ -7,6 +7,7 @@ use elliptic_curve::{
     Group, PrimeField,
     subtle::{Choice, ConditionallySelectable, ConstantTimeEq},
 };
+use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Algorithm {
@@ -364,14 +365,29 @@ where
     result
 }
 
+/// Clears a buffer of points after a constant-time computation.
+///
+/// A Straus table holds the multiples `k * point` of its points, which are as secret as
+/// the points themselves. `G` is not required to implement `Zeroize`, so this overwrites
+/// every entry with the identity and passes the buffer through [`core::hint::black_box`]
+/// to keep the stores from being elided before the buffer is freed. Unlike the volatile
+/// writes of `zeroize`, which wipe the digit buffers, this is best effort.
+fn clear_points<G: Group>(points: &mut [G]) {
+    points.fill(G::identity());
+    core::hint::black_box(points);
+}
+
 fn straus<G>(pairs: &[(G::Scalar, G)], window: u8) -> G
 where
     G: ConditionallySelectable + Group,
 {
     let n = pairs.len();
-    let mut digits = vec![0u8; n * signed_digit_count::<G>(window)];
+    // The digits are derived from the (secret) scalars: wiped when dropped.
+    let mut digits = Zeroizing::new(vec![0u8; n * signed_digit_count::<G>(window)]);
     let mut tables = vec![G::identity(); n * signed_table_len(window)];
-    straus_with(pairs, window, &mut digits, &mut tables)
+    let result = straus_with(pairs, window, &mut digits, &mut tables);
+    clear_points(&mut tables);
+    result
 }
 
 fn straus_vartime<G>(pairs: &[(G::Scalar, G)], window: u8) -> G
@@ -433,7 +449,8 @@ where
     let window = STRAUS_CT_WINDOW;
     let count = signed_digit_count::<G>(window);
     let len = signed_table_len(window);
-    let mut digits = vec![0u8; n * count];
+    // The digits are derived from the (secret) scalars: wiped when dropped.
+    let mut digits = Zeroizing::new(vec![0u8; n * count]);
     let mut tables = vec![G::identity(); n * len];
 
     for (index, (scalar, point)) in iter.take(n).enumerate() {
@@ -449,7 +466,9 @@ where
         );
     }
 
-    straus_accumulate_ct(window, count, len, &digits, &tables)
+    let result = straus_accumulate_ct(window, count, len, &digits, &tables);
+    clear_points(&mut tables);
+    result
 }
 
 /// Compute the sum of scalar products using variable-time table lookups.
@@ -511,11 +530,22 @@ impl core::error::Error for InsufficientScratch {}
 /// call with `capacity` or fewer pairs, in either the constant- or variable-time
 /// path.
 ///
+/// A constant-time call wipes the part of the scratch it used before it returns, so the
+/// scratch keeps nothing derived from the secret scalars between calls, and the digit
+/// buffer is wiped when the scratch is dropped. Variable-time calls, whose inputs are
+/// public, leave their buffers as they are.
+///
 /// [`SumOfProducts::sum_of_products_inplace`]: crate::SumOfProducts::sum_of_products_inplace
 /// [`SumOfProducts::sum_of_products_vartime_inplace`]: crate::SumOfProducts::sum_of_products_vartime_inplace
 pub struct Scratch<G> {
     digits: Vec<u8>,
     points: Vec<G>,
+}
+
+impl<G> Drop for Scratch<G> {
+    fn drop(&mut self) {
+        self.digits.zeroize();
+    }
 }
 
 impl<G: Group> Scratch<G> {
@@ -551,6 +581,16 @@ impl<G: Group> Scratch<G> {
         }
         Ok(())
     }
+
+    /// Whether every digit is zero and every point the identity.
+    #[cfg(test)]
+    pub(crate) fn is_clear(&self) -> bool {
+        self.digits.iter().all(|digit| *digit == 0)
+            && self
+                .points
+                .iter()
+                .all(|point| bool::from(point.is_identity()))
+    }
 }
 
 /// Constant-time sum of scalar products into caller-provided [`Scratch`].
@@ -573,12 +613,16 @@ where
     let points = n * signed_table_len(window);
     scratch.check(digits, points)?;
 
-    Ok(straus_with(
+    let result = straus_with(
         pairs,
         window,
         &mut scratch.digits[..digits],
         &mut scratch.points[..points],
-    ))
+    );
+    // Leave nothing derived from the secret scalars (or points) in the reusable scratch.
+    scratch.digits[..digits].zeroize();
+    clear_points(&mut scratch.points[..points]);
+    Ok(result)
 }
 
 /// Variable-time sum of scalar products into caller-provided [`Scratch`].
@@ -744,8 +788,12 @@ impl<G: Group> Precomputed<G> {
         ))
     }
 
-    /// Recode `scalars` into a fresh digit buffer, checking the length matches the basis.
-    fn recode_or_mismatch<I>(&self, scalars: I) -> Result<(usize, Vec<u8>), LengthMismatch>
+    /// Recode `scalars` into a fresh digit buffer, wiped when dropped, checking the length
+    /// matches the basis.
+    fn recode_or_mismatch<I>(
+        &self,
+        scalars: I,
+    ) -> Result<(usize, Zeroizing<Vec<u8>>), LengthMismatch>
     where
         I: IntoIterator<Item = G::Scalar>,
         I::IntoIter: ExactSizeIterator,
@@ -758,7 +806,7 @@ impl<G: Group> Precomputed<G> {
             });
         }
         let count = signed_digit_count::<G>(self.window);
-        let mut digits = vec![0u8; self.len * count];
+        let mut digits = Zeroizing::new(vec![0u8; self.len * count]);
         recode_signed(scalars, self.window, &mut digits);
         Ok((count, digits))
     }

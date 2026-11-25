@@ -10,6 +10,10 @@ pub trait SumOfProducts: Group {
     /// Avoids scalar-dependent table lookups by scanning each table and selecting
     /// entries with constant-time conditional selection. Use when any scalar
     /// is secret.
+    ///
+    /// Before it returns, it wipes the signed digits it derives from the scalars (with
+    /// `zeroize`) and overwrites its tables of point multiples with the identity (best
+    /// effort, since `Self` need not implement `Zeroize`).
     fn sum_of_products(pairs: &[(Self::Scalar, Self)]) -> Self
     where
         Self: ConditionallySelectable;
@@ -29,6 +33,9 @@ pub trait SumOfProducts: Group {
     /// across calls to avoid per-call heap traffic. The buffer sizes are validated at the
     /// start of the call; if `scratch` is too small for `pairs`, returns
     /// [`InsufficientScratch`](crate::InsufficientScratch) without mutating it.
+    ///
+    /// Before it returns, it wipes the part of `scratch` it used, so the scratch keeps
+    /// nothing derived from the scalars or the points between calls.
     #[cfg(any(feature = "alloc", feature = "std"))]
     fn sum_of_products_inplace(
         pairs: &[(Self::Scalar, Self)],
@@ -56,6 +63,9 @@ pub trait SumOfProducts: Group {
     /// Only the constant-time path offers this: it is always Straus, which streams over
     /// the pairs in a single pass. The variable-time path may use Pippenger, which
     /// revisits the points once per window and so cannot consume a one-pass iterator.
+    ///
+    /// Like [`SumOfProducts::sum_of_products`], it wipes its digit buffer and clears its
+    /// tables before it returns.
     #[cfg(any(feature = "alloc", feature = "std"))]
     fn sum_of_products_iter<I>(pairs: I) -> Self
     where
@@ -259,6 +269,27 @@ mod tests {
         }
     }
 
+    fn assert_inplace_leaves_scratch_clear<G>()
+    where
+        G: ConditionallySelectable + Group + SumOfProducts,
+        G::Scalar: Field,
+    {
+        // A constant-time call wipes what it used, also after a variable-time call has
+        // left its (public) digits and points in the scratch.
+        let mut scratch = Scratch::<G>::new(130);
+        for &n in &[2usize, 5, 130] {
+            let pairs = pseudo_random_pairs::<G>(n, 0x5c ^ n as u64);
+            let naive: G = pairs.iter().map(|(scalar, point)| *point * scalar).sum();
+            assert_eq!(
+                G::sum_of_products_vartime_inplace(&pairs, &mut scratch),
+                Ok(naive)
+            );
+            assert!(!scratch.is_clear(), "n={n}");
+            assert_eq!(G::sum_of_products_inplace(&pairs, &mut scratch), Ok(naive));
+            assert!(scratch.is_clear(), "n={n}");
+        }
+    }
+
     fn assert_undersized_scratch_errors<G>()
     where
         G: ConditionallySelectable + Group + SumOfProducts,
@@ -407,6 +438,20 @@ mod tests {
         assert_inplace_matches_allocating::<bp384::t1::ProjectivePoint>();
         assert_inplace_matches_allocating::<curve25519_dalek::RistrettoPoint>();
         assert_inplace_matches_allocating::<curve25519_dalek::EdwardsPoint>();
+    }
+
+    #[test]
+    fn inplace_leaves_scratch_clear() {
+        assert_inplace_leaves_scratch_clear::<k256::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<p256::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<p384::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<p521::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<bp256::r1::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<bp256::t1::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<bp384::r1::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<bp384::t1::ProjectivePoint>();
+        assert_inplace_leaves_scratch_clear::<curve25519_dalek::RistrettoPoint>();
+        assert_inplace_leaves_scratch_clear::<curve25519_dalek::EdwardsPoint>();
     }
 
     #[test]
